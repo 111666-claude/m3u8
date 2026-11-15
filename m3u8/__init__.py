@@ -32,6 +32,11 @@ from m3u8.model import (
     Tiles,
 )
 from m3u8.parser import ParseError, parse
+from m3u8.validation import (
+    RULES,
+    Diagnostic,
+    validate_playlist,
+)
 
 __all__ = (
     "M3U8",
@@ -61,6 +66,9 @@ __all__ = (
     "load",
     "parse",
     "ParseError",
+    "Diagnostic",
+    "RULES",
+    "validate_playlist",
 )
 
 

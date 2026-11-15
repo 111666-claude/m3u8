@@ -166,6 +166,10 @@ class M3U8:
             self.data = parse(content, strict, custom_tags_parser)
         else:
             self.data = {}
+        # Original text, kept read-only for tools such as
+        # ``m3u8.validate_playlist`` that need source line numbers.
+        # ``dumps`` never uses it.
+        self._source_content = content
         self._base_uri = base_uri
         if self._base_uri:
             if not self._base_uri.endswith("/"):
@@ -361,6 +365,19 @@ class M3U8:
 
     def add_rendition_report(self, report):
         self.rendition_reports.append(report)
+
+    def validate(self):
+        """
+        Run the offline semantic checks over this Media Playlist and return
+        the list of :class:`m3u8.Diagnostic` objects, in playlist order.
+
+        This does not modify the playlist, its URIs or its Media Sequence
+        Numbers.  See :func:`m3u8.validate_playlist` for the rules and for
+        the handling of Master playlists and empty playlists.
+        """
+        from m3u8.validation import validate_playlist
+
+        return validate_playlist(self)
 
     def dumps(self, timespec="milliseconds", infspec="auto"):
         """

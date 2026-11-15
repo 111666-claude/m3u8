@@ -39,6 +39,39 @@ print(playlist.dumps())
 playlist.dump('playlist.m3u8')
 ```
 
+## Validating a playlist
+
+Parsing a playlist does not tell whether a player can actually use it.
+Use `validate_playlist` (or `playlist.validate()`) for an offline semantic
+check. It returns a list of `Diagnostic` objects in playlist order, and it
+never modifies the playlist, its URIs or its Media Sequence Numbers:
+
+``` python
+import m3u8
+
+playlist = m3u8.loads('#EXTM3U ... etc ... ')
+for diagnostic in playlist.validate():
+    print(diagnostic.line, diagnostic.rule, diagnostic.message)
+
+# a string works too
+diagnostics = m3u8.validate_playlist(content)
+```
+
+Each diagnostic carries a stable `rule` identifier (documented in
+`m3u8.RULES` with its severity), a `severity`, the 1-based source `line`,
+the offending `tag`, and the `segment_index` / `media_sequence` / `uri` it
+refers to. The checks cover:
+
+-   `EXTINF` durations longer than `EXT-X-TARGETDURATION` (after rounding);
+-   `EXT-X-BYTERANGE` without an offset that does not follow a byte range of
+    the same media resource;
+-   fragmented MP4 segments without an applicable `EXT-X-MAP`, and
+    `EXT-X-MAP` tags missing their `URI`;
+-   `EXT-X-PLAYLIST-TYPE:VOD` playlists without `EXT-X-ENDLIST`.
+
+Master playlists and Media Playlists without segments are not subject to
+these rules and produce no diagnostics, as do valid live and VOD playlists.
+
 # Supported tags
 
 -   [\#EXT-X-TARGETDURATION](https://tools.ietf.org/html/rfc8216#section-4.3.3.1)
