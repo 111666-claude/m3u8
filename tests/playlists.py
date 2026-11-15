@@ -1587,4 +1587,39 @@ WINDOWS_PLAYLIST = r"""\
 C:\HLS Video\test1.ts
 """
 
+# VOD playlist with key rotation, a discontinuity, uneven segment
+# durations, an initialization map, program date time and date ranges.
+# Segment timeline (seconds):
+#   seg40.ts [0, 10)    key1, PDT 2024-01-01T00:00:00Z, daterange ad-1
+#   seg41.ts [10, 18.5) key1
+#   seg42.ts [18.5, 30.5) key2
+#   seg43.ts [30.5, 39.75) key2, discontinuity, daterange ad-2
+#   seg44.ts [39.75, 50.75) key2
+TRIM_VOD_PLAYLIST = """\
+#EXTM3U
+#EXT-X-TARGETDURATION:12
+#EXT-X-VERSION:7
+#EXT-X-MEDIA-SEQUENCE:40
+#EXT-X-DISCONTINUITY-SEQUENCE:2
+#EXT-X-PLAYLIST-TYPE:VOD
+#EXT-X-MAP:URI="init.mp4"
+#EXT-X-KEY:METHOD=AES-128,URI="key1.bin",IV=0x00000000000000000000000000000001
+#EXT-X-PROGRAM-DATE-TIME:2024-01-01T00:00:00.000Z
+#EXT-X-DATERANGE:ID="ad-1",START-DATE="2024-01-01T00:00:00.000Z",DURATION=10.0
+#EXTINF:10.000,
+seg40.ts
+#EXTINF:8.500,
+seg41.ts
+#EXT-X-KEY:METHOD=AES-128,URI="key2.bin",IV=0x00000000000000000000000000000002
+#EXTINF:12.000,
+seg42.ts
+#EXT-X-DISCONTINUITY
+#EXT-X-DATERANGE:ID="ad-2",START-DATE="2024-01-01T00:00:30.500Z",DURATION=9.25
+#EXTINF:9.250,
+seg43.ts
+#EXTINF:11.000,
+seg44.ts
+#EXT-X-ENDLIST
+"""
+
 del abspath, dirname, join

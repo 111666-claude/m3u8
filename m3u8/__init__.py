@@ -30,6 +30,7 @@ from m3u8.model import (
     Skip,
     Start,
     Tiles,
+    TrimmedPlaylist,
 )
 from m3u8.parser import ParseError, parse
 
@@ -57,6 +58,7 @@ __all__ = (
     "ContentSteering",
     "ImagePlaylist",
     "Tiles",
+    "TrimmedPlaylist",
     "loads",
     "load",
     "parse",

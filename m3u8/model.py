@@ -1,7 +1,10 @@
 # Copyright 2014 Globo.com Player authors. All rights reserved.
 # Use of this source code is governed by a MIT License
 # license that can be found in the LICENSE file.
+import collections
+import copy
 import decimal
+import math
 import os
 
 from m3u8.mixins import BasePathMixin, GroupedBasePathMixin
@@ -18,6 +21,15 @@ from m3u8.protocol import (
 
 class MalformedPlaylistError(Exception):
     pass
+
+
+#: Result of `M3U8.trim`: the trimmed `playlist` plus the actual
+#: window covered by it, in seconds, relative to the start of the
+#: original playlist (`start` is the beginning of the first kept
+#: segment, `end` the end of the last kept segment).
+TrimmedPlaylist = collections.namedtuple(
+    "TrimmedPlaylist", ["playlist", "start", "end"]
+)
 
 
 class M3U8:
@@ -447,6 +459,145 @@ class M3U8:
         basename = os.path.dirname(filename)
         if basename:
             os.makedirs(basename, exist_ok=True)
+
+    def trim(self, start, end):
+        """
+        Returns a new M3U8 covering the playback time interval
+        ``[start, end)`` (in seconds, relative to the beginning of this
+        playlist), keeping only the minimal continuous window of whole
+        segments that covers the interval. Media files are not touched
+        and this playlist is left unchanged.
+
+        The first kept segment carries the encryption key, initialization
+        section (EXT-X-MAP) and program date time that are in effect at
+        that point, so the result is a self-contained, parseable VOD
+        playlist. Media sequence, discontinuity sequence, date ranges and
+        the trailing EXT-X-ENDLIST are adapted to the new window.
+
+        Returns a ``TrimmedPlaylist`` named tuple with the new playlist
+        and the actual window ``(start, end)`` covered by the kept
+        segments.
+
+        Raises ValueError for empty or out-of-range intervals, non-finite
+        bounds, live playlists (no EXT-X-ENDLIST), variant playlists and
+        playlists containing EXT-X-PART partial segments.
+        """
+        if self.is_variant:
+            raise ValueError("cannot trim a variant playlist")
+        if not self.is_endlist:
+            raise ValueError("cannot trim a live playlist without EXT-X-ENDLIST")
+        if not self.segments:
+            raise ValueError("cannot trim a playlist without segments")
+        if any(segment.parts for segment in self.segments):
+            raise ValueError("cannot trim a playlist with EXT-X-PART segments")
+
+        try:
+            start = float(start)
+            end = float(end)
+        except (TypeError, ValueError):
+            raise ValueError("start and end must be numbers") from None
+        if not (math.isfinite(start) and math.isfinite(end)):
+            raise ValueError("start and end must be finite numbers")
+        if start >= end:
+            raise ValueError("empty interval: start must be smaller than end")
+
+        offsets = []
+        position = 0.0
+        for segment in self.segments:
+            duration = segment.duration or 0.0
+            offsets.append((position, position + duration))
+            position += duration
+        total_duration = position
+
+        lo = max(start, 0.0)
+        hi = min(end, total_duration)
+        if lo >= hi:
+            raise ValueError(
+                "interval [%s, %s) does not overlap the playlist "
+                "(duration %s)" % (start, end, total_duration)
+            )
+
+        first = last = None
+        for index, (segment_start, segment_end) in enumerate(offsets):
+            if segment_end > lo and segment_start < hi:
+                if first is None:
+                    first = index
+                last = index
+
+        kept = []
+        discontinuities_before = 0
+        for index, segment in enumerate(self.segments):
+            if index < first:
+                if segment.discontinuity:
+                    discontinuities_before += 1
+                continue
+            if index > last:
+                break
+            new_segment = copy.copy(segment)
+            new_segment.dateranges = DateRangeList(segment.dateranges)
+            new_segment.custom_parser_values = dict(segment.custom_parser_values)
+            if index == first:
+                if new_segment.discontinuity:
+                    # a leading EXT-X-DISCONTINUITY is meaningless in the
+                    # new playlist; fold it into the discontinuity sequence
+                    discontinuities_before += 1
+                    new_segment.discontinuity = False
+                if (
+                    new_segment.program_date_time is None
+                    and new_segment.current_program_date_time is not None
+                ):
+                    new_segment.program_date_time = (
+                        new_segment.current_program_date_time
+                    )
+            kept.append(new_segment)
+
+        base_sequence = (self.media_sequence or 0) + first
+        for index, new_segment in enumerate(kept):
+            new_segment.media_sequence = base_sequence + index
+
+        trimmed = M3U8(base_path=self.base_path, base_uri=self.base_uri)
+        trimmed.is_variant = False
+        trimmed.is_endlist = True
+        trimmed.target_duration = self.target_duration
+        trimmed.version = self.version
+        trimmed.allow_cache = self.allow_cache
+        trimmed.playlist_type = self.playlist_type
+        trimmed.is_i_frames_only = self.is_i_frames_only
+        trimmed.is_independent_segments = self.is_independent_segments
+        trimmed.is_images_only = self.is_images_only
+        trimmed.media_sequence = base_sequence
+        discontinuity_sequence = (
+            self.discontinuity_sequence or 0
+        ) + discontinuities_before
+        trimmed.discontinuity_sequence = discontinuity_sequence or None
+        trimmed.segments = SegmentList(kept)
+        trimmed.program_date_time = kept[0].program_date_time
+
+        trimmed.keys = []
+        for new_segment in kept:
+            if new_segment.key not in trimmed.keys:
+                trimmed.keys.append(new_segment.key)
+        if not trimmed.keys:
+            trimmed.keys = [None]
+
+        trimmed.segment_map = []
+        for new_segment in kept:
+            if (
+                new_segment.init_section is not None
+                and new_segment.init_section not in trimmed.segment_map
+            ):
+                trimmed.segment_map.append(new_segment.init_section)
+
+        trimmed.files = []
+        for key in trimmed.keys:
+            if key and key.uri not in trimmed.files:
+                trimmed.files.append(key.uri)
+        trimmed.files.extend(trimmed.segments.uri)
+
+        trimmed.session_keys = list(self.session_keys)
+        trimmed.session_data = SessionDataList(self.session_data)
+
+        return TrimmedPlaylist(trimmed, offsets[first][0], offsets[last][1])
 
 
 class Segment(BasePathMixin):
