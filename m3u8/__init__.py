@@ -32,6 +32,14 @@ from m3u8.model import (
     Tiles,
 )
 from m3u8.parser import ParseError, parse
+from m3u8.steering import (
+    PathwaySelector,
+    SteeringError,
+    SteeringManifest,
+    SteeringManifestError,
+    SteeringRequestError,
+    parse_steering_manifest,
+)
 
 __all__ = (
     "M3U8",
@@ -61,6 +69,12 @@ __all__ = (
     "load",
     "parse",
     "ParseError",
+    "PathwaySelector",
+    "SteeringError",
+    "SteeringManifest",
+    "SteeringManifestError",
+    "SteeringRequestError",
+    "parse_steering_manifest",
 )
 
 
