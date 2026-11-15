@@ -6,6 +6,7 @@ import os
 from urllib.parse import urljoin, urlsplit
 
 from m3u8.httpclient import DefaultHTTPClient
+from m3u8.merge import PlaylistMergeError, merge
 from m3u8.model import (
     M3U8,
     ContentSteering,
@@ -61,6 +62,8 @@ __all__ = (
     "load",
     "parse",
     "ParseError",
+    "merge",
+    "PlaylistMergeError",
 )
 
 

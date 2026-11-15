@@ -362,6 +362,25 @@ class M3U8:
     def add_rendition_report(self, report):
         self.rendition_reports.append(report)
 
+    def merge(self, playlist):
+        """
+        Merge a newly fetched version of this Media Playlist into it and
+        return a new, complete :class:`M3U8` object.
+
+        This playlist is treated as the previous, already known version and
+        ``playlist`` as the one just fetched, which may contain an
+        ``EXT-X-SKIP`` tag describing a Playlist Delta Update.  The skipped
+        Media Segments that still belong to the playback window are restored
+        by their Media Sequence Number, and low-latency Partial Segments
+        already present are not duplicated.  Neither playlist is modified.
+
+        See :func:`m3u8.merge` for the full merging rules and the errors
+        that can be raised.
+        """
+        from m3u8.merge import merge as merge_playlists
+
+        return merge_playlists(self, playlist)
+
     def dumps(self, timespec="milliseconds", infspec="auto"):
         """
         Returns the current m3u8 as a string.

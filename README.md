@@ -39,6 +39,42 @@ print(playlist.dumps())
 playlist.dump('playlist.m3u8')
 ```
 
+## Merging playlist delta updates (EXT-X-SKIP)
+
+A live playlist may be reloaded as a *Playlist Delta Update*, in which the
+older Media Segments are replaced by a single `#EXT-X-SKIP` tag. Such a
+playlist is not directly usable: the skipped segments still belong to the
+playback window. Use `m3u8.merge` (or the `M3U8.merge` method) to combine
+the previously known playlist with the one just fetched and obtain a
+complete, serializable window:
+
+```python
+import m3u8
+
+previous = m3u8.load('http://videoserver.com/playlist.m3u8')
+current = m3u8.load('http://videoserver.com/playlist.m3u8')  # may contain EXT-X-SKIP
+
+window = m3u8.merge(previous, current)
+# equivalent to: window = previous.merge(current)
+
+print(window.dumps())  # a full playlist with every segment of the window
+```
+
+Segments are reconciled by their Media Sequence Number: the segments
+replaced by `#EXT-X-SKIP` are restored from the previous playlist, segments
+present in both playlists are taken from the new one (so low-latency
+`#EXT-X-PART` entries are never duplicated), and segments that have left the
+window are cropped. `#EXT-X-KEY`, `#EXT-X-MAP`, the discontinuity sequence,
+`#EXT-X-PROGRAM-DATE-TIME` and `#EXT-X-DATERANGE` information attached to
+the surviving segments is preserved, and neither input playlist is
+modified.
+
+A `m3u8.PlaylistMergeError` is raised when the previous playlist does not
+contain all the skipped segments, the Media Sequence Number moves backwards,
+or the two playlists are otherwise incompatible (for example a Master
+playlist). In that situation the client should fetch a complete copy of the
+playlist instead of merging.
+
 # Supported tags
 
 -   [\#EXT-X-TARGETDURATION](https://tools.ietf.org/html/rfc8216#section-4.3.3.1)
