@@ -362,6 +362,22 @@ class M3U8:
     def add_rendition_report(self, report):
         self.rendition_reports.append(report)
 
+    def set_rendition_reports(self, reports):
+        """
+        Replace every ``EXT-X-RENDITION-REPORT`` tag of this playlist.
+
+        ``reports`` is an iterable of :class:`RenditionReport` objects. The
+        previously published reports are dropped instead of being appended
+        to, while segments, keys, Partial Segments and all other tags are
+        left untouched. The URIs of the new reports are kept exactly as
+        given (usually relative to this playlist's URI); only ``base_uri``
+        is applied, so ``absolute_uri`` resolves against the playlist.
+        """
+        self.rendition_reports = RenditionReportList(reports)
+        for report in self.rendition_reports:
+            if report.base_uri is None:
+                report.base_uri = self.base_uri
+
     def dumps(self, timespec="milliseconds", infspec="auto"):
         """
         Returns the current m3u8 as a string.

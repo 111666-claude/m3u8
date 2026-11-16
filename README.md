@@ -39,6 +39,48 @@ print(playlist.dumps())
 playlist.dump('playlist.m3u8')
 ```
 
+## Generating cross-rendition reports
+
+Low-Latency HLS publishes video, audio and subtitle renditions as separate
+Media Playlists that scroll independently. Each playlist has to carry one
+`EXT-X-RENDITION-REPORT` tag for every *other* rendition, telling players how
+far that rendition has progressed. Use `generate_rendition_reports` to build
+those tags from the current snapshot of all tracks:
+
+``` python
+import m3u8
+
+tracks = {
+    'video/index.m3u8': m3u8.load('http://videoserver.com/hls/video/index.m3u8'),
+    'audio/index.m3u8': m3u8.load('http://videoserver.com/hls/audio/index.m3u8'),
+    'subs/index.m3u8': m3u8.load('http://videoserver.com/hls/subs/index.m3u8'),
+}
+
+m3u8.generate_rendition_reports(tracks)
+
+for playlist in tracks.values():
+    print(playlist.dumps())
+```
+
+For every playlist one report is generated per other track, in input order.
+`URI` is relative to the URI of the playlist that contains the report
+(`../audio/index.m3u8`), `LAST-MSN` comes from `EXT-X-MEDIA-SEQUENCE`, the
+number of listed segments and `SKIPPED-SEGMENTS`, and `LAST-MSN`/`LAST-PART`
+point at the last Partial Segment when the referenced rendition contains
+`EXT-X-PART` tags. Existing reports are replaced instead of appended to, so
+the same function can be called again after the windows scroll; segments,
+keys, `EXT-X-MAP`, Partial Segments and all other tags are left untouched,
+and the resulting playlists survive `dumps`/`loads` round trips.
+
+Tracks may be given as a `{uri: playlist}` mapping, as `(uri, playlist)`
+pairs, as `m3u8.RenditionTrack` objects, or as playlists that carry a `uri`
+attribute; playlists can also be passed as playlist content strings. All
+tracks are validated before any playlist is modified: a
+`m3u8.RenditionReportError` (a `ValueError`) is raised for duplicate URIs,
+empty or expired playlists, master playlists, tracks without a determinable
+Media Sequence Number and illegal `EXT-X-PART` layouts, so an invalid
+snapshot is never published.
+
 # Supported tags
 
 -   [\#EXT-X-TARGETDURATION](https://tools.ietf.org/html/rfc8216#section-4.3.3.1)

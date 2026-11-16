@@ -32,6 +32,11 @@ from m3u8.model import (
     Tiles,
 )
 from m3u8.parser import ParseError, parse
+from m3u8.rendition import (
+    RenditionReportError,
+    RenditionTrack,
+    generate_rendition_reports,
+)
 
 __all__ = (
     "M3U8",
@@ -48,6 +53,9 @@ __all__ = (
     "Start",
     "RenditionReport",
     "RenditionReportList",
+    "RenditionTrack",
+    "RenditionReportError",
+    "generate_rendition_reports",
     "ServerControl",
     "Skip",
     "PartInformation",
