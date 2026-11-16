@@ -551,6 +551,64 @@ PLAYLIST_WITH_KEYFORMAT_AND_KEYFORMATVERSIONS = """#EXTM3U
 segment.ts
 """
 
+# A clear replay playlist, as stored before encryption keys are applied.
+# Segment 2 and 3 share a byte range, so the key schedule must not touch
+# the EXT-X-BYTERANGE tags nor the duplicated URI of segment 3.
+KEY_SCHEDULE_CLEAR_PLAYLIST = """#EXTM3U
+#EXT-X-VERSION:4
+#EXT-X-MEDIA-SEQUENCE:100
+#EXT-X-TARGETDURATION:6
+#EXT-X-PLAYLIST-TYPE:VOD
+#EXTINF:6,
+seg100.ts
+#EXTINF:6,
+seg101.ts
+#EXTINF:6,
+#EXT-X-BYTERANGE:1000@0
+seg102.ts
+#EXTINF:6,
+#EXT-X-BYTERANGE:1200@1000
+seg102.ts
+#EXTINF:6,
+seg103.ts
+#EXTINF:6,
+seg104.ts
+#EXTINF:6,
+seg105.ts
+#EXT-X-ENDLIST
+"""
+
+# Three AES-128 rotations followed by a clear stretch: the expected
+# serialization of KEY_SCHEDULE_CLEAR_PLAYLIST after applying the schedule
+# below.
+KEY_SCHEDULE_ROTATED_PLAYLIST = """#EXTM3U
+#EXT-X-MEDIA-SEQUENCE:100
+#EXT-X-VERSION:4
+#EXT-X-TARGETDURATION:6
+#EXT-X-PLAYLIST-TYPE:VOD
+#EXT-X-KEY:METHOD=AES-128,URI="keys/key0.bin",IV=0x000102030405060708090a0b0c0d0e0f
+#EXTINF:6,
+seg100.ts
+#EXTINF:6,
+seg101.ts
+#EXT-X-KEY:METHOD=AES-128,URI="keys/key1.bin",IV=0x101112131415161718191a1b1c1d1e1f
+#EXTINF:6,
+#EXT-X-BYTERANGE:1000@0
+seg102.ts
+#EXTINF:6,
+#EXT-X-BYTERANGE:1200@1000
+seg102.ts
+#EXT-X-KEY:METHOD=AES-128,URI="keys/key2.bin",IV=0x202122232425262728292a2b2c2d2e2f
+#EXTINF:6,
+seg103.ts
+#EXTINF:6,
+seg104.ts
+#EXT-X-KEY:METHOD=NONE
+#EXTINF:6,
+seg105.ts
+#EXT-X-ENDLIST
+"""
+
 SIMPLE_PLAYLIST_WITH_QUOTED_TITLE = """
 #EXTM3U
 #EXT-X-TARGETDURATION:5220

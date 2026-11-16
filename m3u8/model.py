@@ -362,6 +362,43 @@ class M3U8:
     def add_rendition_report(self, report):
         self.rendition_reports.append(report)
 
+    def apply_key_schedule(self, intervals, axis="auto"):
+        """
+        Apply a key rotation schedule to this Media Playlist and return
+        ``self``.
+
+        ``intervals`` is an iterable of :class:`m3u8.KeyInterval` objects
+        covering every segment exactly once, in Media Sequence Number or
+        segment index order. Segments inside an interval get the AES-128
+        key and IV of that interval (or become clear media for
+        ``METHOD=NONE``), while their URI, duration, byte range and Media
+        Sequence Number are preserved. Only the ``EXT-X-KEY`` tags change,
+        so one tag is emitted at each key switch.
+
+        See :func:`m3u8.apply_key_schedule` for the accepted axes and the
+        full list of errors raised as :class:`m3u8.KeyScheduleError`.
+        """
+        from m3u8.key_schedule import apply_key_schedule
+
+        return apply_key_schedule(self, intervals, axis=axis)
+
+    def key_intervals(self, axis="media_sequence"):
+        """
+        Return the key rotation schedule currently applied to this Media
+        Playlist, as a list of :class:`m3u8.KeyInterval` objects.
+
+        Consecutive segments sharing the same key are merged into a single
+        interval, so the result can be passed back to
+        :meth:`apply_key_schedule` (also after serializing and reparsing
+        the playlist). Clear stretches are reported with ``METHOD=NONE``.
+
+        See :func:`m3u8.key_intervals_from_playlist` for the accepted
+        axes.
+        """
+        from m3u8.key_schedule import key_intervals_from_playlist
+
+        return key_intervals_from_playlist(self, axis=axis)
+
     def dumps(self, timespec="milliseconds", infspec="auto"):
         """
         Returns the current m3u8 as a string.

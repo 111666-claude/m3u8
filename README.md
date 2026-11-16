@@ -39,6 +39,44 @@ print(playlist.dumps())
 playlist.dump('playlist.m3u8')
 ```
 
+## Applying a key rotation schedule
+
+Event replays are often encrypted with a sequence of AES-128 keys instead
+of a single key for the whole presentation. When the replay playlist
+already lists its segments but has no `EXT-X-KEY` tags yet, describe the
+rotation plan as contiguous `KeyInterval` objects and apply it with
+`apply_key_schedule` (or the `playlist.apply_key_schedule` method):
+
+``` python
+import m3u8
+
+playlist = m3u8.load('http://videoserver.com/replay.m3u8')
+
+playlist.apply_key_schedule([
+    m3u8.KeyInterval(100, 102, uri='keys/key0.bin', iv='0x000102030405060708090a0b0c0d0e0f'),
+    m3u8.KeyInterval(102, 104, uri='keys/key1.bin', iv='0x101112131415161718191a1b1c1d1e1f'),
+    m3u8.KeyInterval(104, 106, uri='keys/key2.bin', iv='0x202122232425262728292a2b2c2d2e2f'),
+    m3u8.KeyInterval(106, 107, method='NONE'),  # switch back to clear media
+])
+
+print(playlist.dumps())  # one EXT-X-KEY tag at each switch point
+```
+
+Intervals are half-open and are given in Media Sequence Number order (pass
+`axis='index'` to use zero-based segment indexes instead; `axis='auto'`,
+the default, detects the unit). They must be sorted, contiguous and cover
+every segment exactly once, so every segment has a well defined key. Each
+segment gets the `Key` object of its interval, while its URI, duration,
+byte range and Media Sequence Number are preserved; an interval with
+`method='NONE'` switches back to clear media. The `IV` is optional for
+AES-128 and must be written as `0x` followed by 32 hexadecimal digits.
+
+Use `playlist.key_intervals()` (or `m3u8.key_intervals_from_playlist`) to
+read the schedule back, including from a playlist that was serialized and
+parsed again. `m3u8.KeyScheduleError` is raised for overlapping intervals,
+gaps, out-of-bounds indexes, unsupported methods, missing key URIs and
+malformed IVs; the playlist is left untouched when that happens.
+
 # Supported tags
 
 -   [\#EXT-X-TARGETDURATION](https://tools.ietf.org/html/rfc8216#section-4.3.3.1)

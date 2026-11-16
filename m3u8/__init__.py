@@ -6,6 +6,12 @@ import os
 from urllib.parse import urljoin, urlsplit
 
 from m3u8.httpclient import DefaultHTTPClient
+from m3u8.key_schedule import (
+    KeyInterval,
+    KeyScheduleError,
+    apply_key_schedule,
+    key_intervals_from_playlist,
+)
 from m3u8.model import (
     M3U8,
     ContentSteering,
@@ -57,6 +63,10 @@ __all__ = (
     "ContentSteering",
     "ImagePlaylist",
     "Tiles",
+    "KeyInterval",
+    "KeyScheduleError",
+    "apply_key_schedule",
+    "key_intervals_from_playlist",
     "loads",
     "load",
     "parse",
