@@ -14,6 +14,7 @@ from m3u8.model import (
     IFramePlaylist,
     ImagePlaylist,
     Key,
+    KeyFrame,
     Media,
     MediaList,
     PartialSegment,
@@ -30,6 +31,7 @@ from m3u8.model import (
     Skip,
     Start,
     Tiles,
+    build_iframe_playlist,
 )
 from m3u8.parser import ParseError, parse
 
@@ -57,6 +59,8 @@ __all__ = (
     "ContentSteering",
     "ImagePlaylist",
     "Tiles",
+    "KeyFrame",
+    "build_iframe_playlist",
     "loads",
     "load",
     "parse",

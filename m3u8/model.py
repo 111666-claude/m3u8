@@ -2,7 +2,9 @@
 # Use of this source code is governed by a MIT License
 # license that can be found in the LICENSE file.
 import decimal
+import math
 import os
+from typing import NamedTuple, Optional
 
 from m3u8.mixins import BasePathMixin, GroupedBasePathMixin
 from m3u8.parser import format_date_time, parse
@@ -1660,3 +1662,133 @@ def number_to_string(number):
             if d == d.to_integral_value()
             else d.normalize()
         )
+
+
+class KeyFrame(NamedTuple):
+    """
+    A single I-frame record extracted from a video file, used to build
+    an I-frame only media playlist (EXT-X-I-FRAMES-ONLY).
+
+    `uri`
+      URI of the media file containing the I-frame
+
+    `byte_offset`
+      offset of the I-frame's first byte inside `uri`
+
+    `byte_length`
+      number of bytes the I-frame spans
+
+    `duration`
+      time in seconds this I-frame covers (until the next one)
+
+    `timestamp`
+      optional presentation time in seconds; when present on
+      consecutive records it must be non-decreasing
+    """
+
+    uri: str
+    byte_offset: int
+    byte_length: int
+    duration: float
+    timestamp: Optional[float] = None
+
+
+# EXT-X-BYTERANGE requires protocol version 4
+IFRAME_PLAYLIST_VERSION = 4
+
+
+def build_iframe_playlist(keyframes, media_sequence=0, playlist_type="VOD"):
+    """
+    Builds an I-frame only media playlist (EXT-X-I-FRAMES-ONLY) from an
+    ordered list of `KeyFrame` records and returns it as an `M3U8` object.
+
+    Consecutive records pointing at the same URI are emitted as contiguous
+    EXT-X-BYTERANGE segments: the offset is omitted whenever it continues
+    exactly where the previous segment ended, and is explicit otherwise
+    (first segment, URI change or gap), so the serialized playlist parses
+    back into the very same records.
+
+    Raises ValueError if the list is empty, a duration is not positive,
+    a byte range is out of bounds (negative offset or non-positive
+    length), two ranges of the same URI overlap, or timestamps go
+    backwards.
+    """
+    keyframes = list(keyframes)
+    if not keyframes:
+        raise ValueError("cannot build an I-frame playlist from an empty keyframe list")
+
+    seen_ranges = {}  # uri -> list of (offset, end) already used
+    previous = None
+    byteranges = []
+    for index, frame in enumerate(keyframes):
+        if frame.duration is None or frame.duration <= 0:
+            raise ValueError(
+                "keyframe #%d has a non-positive duration: %r" % (index, frame.duration)
+            )
+        if frame.byte_offset < 0:
+            raise ValueError(
+                "keyframe #%d has an out of bounds byte offset: %d"
+                % (index, frame.byte_offset)
+            )
+        if frame.byte_length <= 0:
+            raise ValueError(
+                "keyframe #%d has an out of bounds byte length: %d"
+                % (index, frame.byte_length)
+            )
+        if (
+            previous is not None
+            and frame.timestamp is not None
+            and previous.timestamp is not None
+            and frame.timestamp < previous.timestamp
+        ):
+            raise ValueError(
+                "keyframe #%d timestamp %s goes backwards (previous: %s)"
+                % (index, frame.timestamp, previous.timestamp)
+            )
+
+        end = frame.byte_offset + frame.byte_length
+        for seen_start, seen_end in seen_ranges.get(frame.uri, []):
+            if frame.byte_offset < seen_end and end > seen_start:
+                raise ValueError(
+                    "keyframe #%d byte range %d@%d overlaps an earlier "
+                    "range %d-%d of %s"
+                    % (
+                        index,
+                        frame.byte_length,
+                        frame.byte_offset,
+                        seen_start,
+                        seen_end,
+                        frame.uri,
+                    )
+                )
+        seen_ranges.setdefault(frame.uri, []).append((frame.byte_offset, end))
+
+        if (
+            previous is not None
+            and frame.uri == previous.uri
+            and frame.byte_offset == previous.byte_offset + previous.byte_length
+        ):
+            # contiguous with the previous segment of the same URI:
+            # the offset may be omitted (RFC 8216, EXT-X-BYTERANGE)
+            byteranges.append(str(frame.byte_length))
+        else:
+            byteranges.append("%d@%d" % (frame.byte_length, frame.byte_offset))
+        previous = frame
+
+    playlist = M3U8()
+    playlist.is_i_frames_only = True
+    playlist.version = IFRAME_PLAYLIST_VERSION
+    playlist.target_duration = math.ceil(max(frame.duration for frame in keyframes))
+    playlist.media_sequence = media_sequence
+    playlist.playlist_type = playlist_type
+    playlist.is_endlist = True
+    for index, (frame, byterange) in enumerate(zip(keyframes, byteranges)):
+        playlist.add_segment(
+            Segment(
+                uri=frame.uri,
+                duration=frame.duration,
+                byterange=byterange,
+                media_sequence=media_sequence + index,
+            )
+        )
+    return playlist
