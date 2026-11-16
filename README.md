@@ -39,6 +39,38 @@ print(playlist.dumps())
 playlist.dump('playlist.m3u8')
 ```
 
+## Filtering a master playlist by capability
+
+To build an independent, capability constrained subset of a master playlist
+(for example a reduced playlist for low-bandwidth terminals), use
+`filter_by_capability`. It filters both regular and I-frame variants by
+maximum bandwidth, maximum resolution and/or an allowed set of codecs, keeps
+the original ordering, and retains only the AUDIO, VIDEO, SUBTITLES and
+CLOSED-CAPTIONS renditions still referenced by a surviving variant. The
+original playlist is never modified and the returned subset can be dumped and
+re-parsed without breaking any group reference or relative URI.
+
+```python
+import m3u8
+
+master = m3u8.load('http://videoserver.com/master.m3u8')
+
+subset = master.filter_by_capability(
+    max_bandwidth=1200000,               # keep variants up to this BANDWIDTH
+    max_resolution=(1280, 720),          # tuple or "1280x720" string
+    allowed_codecs={'avc1.4d401f', 'mp4a.40.2'},  # every variant codec must be allowed
+)
+print(subset.dumps())
+
+# the master playlist itself is untouched
+assert master.dumps() != subset.dumps()
+```
+
+Any constraint is optional. A `m3u8.CapabilityFilterError` (a `ValueError`)
+is raised, instead of writing a seemingly playable playlist, when the
+constraints are invalid, no variant survives, a referenced rendition group is
+missing or the subset would contain a dangling reference.
+
 # Supported tags
 
 -   [\#EXT-X-TARGETDURATION](https://tools.ietf.org/html/rfc8216#section-4.3.3.1)

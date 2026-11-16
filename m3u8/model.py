@@ -1,6 +1,7 @@
 # Copyright 2014 Globo.com Player authors. All rights reserved.
 # Use of this source code is governed by a MIT License
 # license that can be found in the LICENSE file.
+import copy
 import decimal
 import os
 
@@ -18,6 +19,14 @@ from m3u8.protocol import (
 
 class MalformedPlaylistError(Exception):
     pass
+
+
+class CapabilityFilterError(ValueError):
+    """
+    Raised when a master playlist cannot be turned into a capability
+    constrained subset: invalid constraints, no surviving variant, a missing
+    rendition group or dangling group references after filtering.
+    """
 
 
 class M3U8:
@@ -361,6 +370,146 @@ class M3U8:
 
     def add_rendition_report(self, report):
         self.rendition_reports.append(report)
+
+    def filter_by_capability(
+        self,
+        max_bandwidth=None,
+        max_resolution=None,
+        allowed_codecs=None,
+    ):
+        """
+        Builds an independent, capability constrained subset of a master
+        (variant) playlist and returns it as a new ``M3U8`` object.
+
+        Parameters:
+
+         `max_bandwidth`
+           keep only variants (including I-frame variants) whose BANDWIDTH
+           does not exceed this value
+
+         `max_resolution`
+           a ``(width, height)`` tuple or a ``"widthxheight"`` string;
+           variants without a RESOLUTION are dropped when this is given
+
+         `allowed_codecs`
+           an iterable of codec identifiers; every codec listed in a
+           variant's CODECS attribute must be part of this collection for
+           the variant to be kept. Variants without CODECS are dropped when
+           this is given.
+
+        Only AUDIO, VIDEO, SUBTITLES and CLOSED-CAPTIONS renditions still
+        referenced by a surviving regular variant are kept. The original
+        ordering of variants, I-frame variants and renditions is preserved.
+        The original playlist is never modified.
+
+        Raises ``CapabilityFilterError`` for invalid constraints, when the
+        playlist is not a master playlist, when no variant survives the
+        filters, when a referenced rendition group is missing or when the
+        resulting subset would contain dangling references.
+        """
+        constraints = _coerce_capability_constraints(
+            max_bandwidth, max_resolution, allowed_codecs
+        )
+
+        if not self.is_variant or not self.playlists:
+            raise CapabilityFilterError(
+                "capability filtering requires a master playlist with variants"
+            )
+
+        self._validate_rendition_groups()
+
+        kept_playlists = [
+            playlist
+            for playlist in self.playlists
+            if _matches_capabilities(playlist.stream_info, constraints)
+        ]
+        if not kept_playlists:
+            raise CapabilityFilterError(
+                "no variant matches the given capability constraints"
+            )
+
+        kept_iframe_playlists = [
+            iframe_playlist
+            for iframe_playlist in self.iframe_playlists
+            if _matches_capabilities(iframe_playlist.iframe_stream_info, constraints)
+        ]
+
+        referenced_groups = set()
+        for playlist in kept_playlists:
+            for media_type, attribute_name in _MEDIA_GROUP_ATTRIBUTES:
+                group_id = _group_id(getattr(playlist.stream_info, attribute_name))
+                if group_id is not None:
+                    referenced_groups.add((media_type, group_id))
+
+        kept_media = MediaList(
+            [
+                media
+                for media in self.media
+                if (media.type, media.group_id) in referenced_groups
+            ]
+        )
+
+        # ``CLOSED-CAPTIONS=NONE`` does not reference a rendition group and
+        # must stay valid; everything else must resolve to a kept rendition.
+        for playlist in kept_playlists:
+            closed_captions = _group_id(playlist.stream_info.closed_captions)
+            if closed_captions is not None and not any(
+                media.type == "CLOSED-CAPTIONS" and media.group_id == closed_captions
+                for media in kept_media
+            ):
+                raise CapabilityFilterError(
+                    f"CLOSED-CAPTIONS group {closed_captions!r} is not defined "
+                    "by any EXT-X-MEDIA rendition"
+                )
+
+        subset = copy.deepcopy(self)
+        subset.media = kept_media
+        subset.playlists = PlaylistList(
+            [
+                Playlist(
+                    uri=playlist.uri,
+                    stream_info=_stream_info_dict(playlist.stream_info),
+                    media=kept_media,
+                    base_uri=playlist.base_uri,
+                )
+                for playlist in kept_playlists
+            ]
+        )
+        subset.iframe_playlists = PlaylistList(
+            [
+                IFramePlaylist(
+                    base_uri=iframe_playlist.base_uri,
+                    uri=iframe_playlist.uri,
+                    iframe_stream_info=_stream_info_dict(
+                        iframe_playlist.iframe_stream_info
+                    ),
+                )
+                for iframe_playlist in kept_iframe_playlists
+            ]
+        )
+        subset.data["media"] = []
+        subset.data["playlists"] = []
+        subset.data["iframe_playlists"] = []
+        return subset
+
+    def _validate_rendition_groups(self):
+        available_groups = {(media.type, media.group_id) for media in self.media}
+        for playlist in self.playlists:
+            for media_type, attribute_name in _MEDIA_GROUP_ATTRIBUTES:
+                group_id = _group_id(getattr(playlist.stream_info, attribute_name))
+                if (
+                    group_id is not None
+                    and (
+                        media_type,
+                        group_id,
+                    )
+                    not in available_groups
+                ):
+                    raise CapabilityFilterError(
+                        f"{media_type} group {group_id!r} referenced by "
+                        f"variant {playlist.uri!r} is not defined by any "
+                        "EXT-X-MEDIA rendition"
+                    )
 
     def dumps(self, timespec="milliseconds", infspec="auto"):
         """
@@ -1641,6 +1790,151 @@ def find_key(keydata, keylist):
             ):
                 return key
     raise KeyError("No key found for key data")
+
+
+# (EXT-X-MEDIA TYPE, STREAM-INF attribute) of the rendition group references
+_MEDIA_GROUP_ATTRIBUTES = (
+    ("AUDIO", "audio"),
+    ("VIDEO", "video"),
+    ("SUBTITLES", "subtitles"),
+    ("CLOSED-CAPTIONS", "closed_captions"),
+)
+
+
+def _group_id(value):
+    """
+    Normalizes a STREAM-INF group attribute into a group id, or returns
+    ``None`` when it is not a group reference (missing or ``NONE``).
+    Group ids parsed from quoted attributes still carry their quotes.
+    """
+    if value is None:
+        return None
+    group_id = value.strip()
+    if not group_id or group_id == "NONE":
+        return None
+    return group_id.strip('"')
+
+
+def _coerce_capability_constraints(max_bandwidth, max_resolution, allowed_codecs):
+    if max_bandwidth is not None:
+        if isinstance(max_bandwidth, bool) or not isinstance(max_bandwidth, int):
+            raise CapabilityFilterError("max_bandwidth must be a positive integer")
+        if max_bandwidth <= 0:
+            raise CapabilityFilterError("max_bandwidth must be a positive integer")
+
+    if max_resolution is not None:
+        if isinstance(max_resolution, str):
+            parts = max_resolution.lower().split("x")
+            if len(parts) != 2:
+                raise CapabilityFilterError(
+                    "max_resolution must be a (width, height) tuple or a "
+                    "'widthxheight' string"
+                )
+            try:
+                max_resolution = (int(parts[0]), int(parts[1]))
+            except ValueError:
+                raise CapabilityFilterError(
+                    "max_resolution must be a (width, height) tuple or a "
+                    "'widthxheight' string"
+                )
+        if (
+            not isinstance(max_resolution, tuple)
+            or len(max_resolution) != 2
+            or isinstance(max_resolution[0], bool)
+            or isinstance(max_resolution[1], bool)
+            or not all(
+                isinstance(dimension, int) and dimension > 0
+                for dimension in max_resolution
+            )
+        ):
+            raise CapabilityFilterError(
+                "max_resolution must be a (width, height) tuple of positive "
+                "integers or a 'widthxheight' string"
+            )
+
+    if allowed_codecs is not None:
+        if isinstance(allowed_codecs, str) or not isinstance(
+            allowed_codecs, (list, tuple, set, frozenset)
+        ):
+            raise CapabilityFilterError(
+                "allowed_codecs must be an iterable of codec identifiers"
+            )
+        normalized_codecs = set()
+        for codec in allowed_codecs:
+            if not isinstance(codec, str) or not codec.strip():
+                raise CapabilityFilterError(
+                    "allowed_codecs entries must be non-empty strings"
+                )
+            normalized_codecs.add(codec.strip())
+        if not normalized_codecs:
+            raise CapabilityFilterError(
+                "allowed_codecs must contain at least one codec"
+            )
+        allowed_codecs = normalized_codecs
+
+    return {
+        "max_bandwidth": max_bandwidth,
+        "max_resolution": max_resolution,
+        "allowed_codecs": allowed_codecs,
+    }
+
+
+def _variant_codecs(stream_info):
+    if not stream_info.codecs:
+        return set()
+    return {codec.strip() for codec in stream_info.codecs.split(",") if codec.strip()}
+
+
+def _matches_capabilities(stream_info, constraints):
+    max_bandwidth = constraints["max_bandwidth"]
+    if max_bandwidth is not None and (
+        stream_info.bandwidth is None or stream_info.bandwidth > max_bandwidth
+    ):
+        return False
+
+    max_resolution = constraints["max_resolution"]
+    if max_resolution is not None:
+        if stream_info.resolution is None:
+            return False
+        width, height = stream_info.resolution
+        if width > max_resolution[0] or height > max_resolution[1]:
+            return False
+
+    allowed_codecs = constraints["allowed_codecs"]
+    if allowed_codecs is not None:
+        codecs = _variant_codecs(stream_info)
+        if not codecs or not codecs.issubset(allowed_codecs):
+            return False
+
+    return True
+
+
+def _stream_info_dict(stream_info):
+    """
+    Builds the parser style ``stream_info`` dict expected by the
+    Playlist/IFramePlaylist constructors from a StreamInfo object.
+    """
+    info = {
+        "bandwidth": stream_info.bandwidth,
+        "average_bandwidth": stream_info.average_bandwidth,
+        "program_id": stream_info.program_id,
+        "video": stream_info.video,
+        "audio": stream_info.audio,
+        "subtitles": stream_info.subtitles,
+        "closed_captions": stream_info.closed_captions,
+        "codecs": stream_info.codecs,
+        "frame_rate": stream_info.frame_rate,
+        "video_range": stream_info.video_range,
+        "hdcp_level": stream_info.hdcp_level,
+        "pathway_id": stream_info.pathway_id,
+        "stable_variant_id": stream_info.stable_variant_id,
+        "req_video_layout": stream_info.req_video_layout,
+    }
+    if stream_info.resolution is not None:
+        info["resolution"] = f"{stream_info.resolution[0]}x{stream_info.resolution[1]}"
+    else:
+        info["resolution"] = None
+    return info
 
 
 def denormalize_attribute(attribute):

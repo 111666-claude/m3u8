@@ -8,6 +8,7 @@ from urllib.parse import urljoin, urlsplit
 from m3u8.httpclient import DefaultHTTPClient
 from m3u8.model import (
     M3U8,
+    CapabilityFilterError,
     ContentSteering,
     DateRange,
     DateRangeList,
@@ -35,6 +36,7 @@ from m3u8.parser import ParseError, parse
 
 __all__ = (
     "M3U8",
+    "CapabilityFilterError",
     "Segment",
     "SegmentList",
     "PartialSegment",
