@@ -39,6 +39,43 @@ print(playlist.dumps())
 playlist.dump('playlist.m3u8')
 ```
 
+## Inspecting a gap aware timeline
+
+A playlist may mark a Media Segment as unavailable with `EXT-X-GAP`. Such a
+segment still occupies its `EXTINF` duration, so a player must skip its
+download without removing its time from the timeline, otherwise the
+following segments would shift. `gap_timeline()` (or
+`m3u8.build_segment_timeline(playlist)`) returns one entry per segment with
+its Media Sequence Number, URI, start/end offsets and a `downloadable`
+flag:
+
+``` python
+import m3u8
+
+playlist = m3u8.load('http://videoserver.com/live.m3u8')
+
+for entry in playlist.gap_timeline():
+    if entry.downloadable:
+        download(entry.uri)
+    else:
+        print(entry.media_sequence, 'is missing at', entry.start, '-', entry.end)
+```
+
+Gap entries keep their duration and position, so `entry.start` always
+equals the previous entry's `end`, gaps included. When the playlist has
+`EXT-X-PROGRAM-DATE-TIME` anchors the entries also carry `start_date` /
+`end_date`, and `EXT-X-DISCONTINUITY` splits the timeline into continuous
+`spans` (offsets stay cumulative across a discontinuity, wall-clock dates
+restart at the next anchor). Each entry references the original `Segment`
+object (`entry.segment`) and the playlist is never modified, so
+`playlist.dumps()` keeps working as before.
+
+The timeline is rejected with `m3u8.TimelineError` instead of guessing for
+missing or invalid `EXTINF` durations, a gap with a non-positive duration,
+duplicate or non-contiguous Media Sequence Numbers, a `PROGRAM-DATE-TIME`
+that goes backwards inside a continuous span, and a gap segment that
+carries downloadable partial segments.
+
 # Supported tags
 
 -   [\#EXT-X-TARGETDURATION](https://tools.ietf.org/html/rfc8216#section-4.3.3.1)

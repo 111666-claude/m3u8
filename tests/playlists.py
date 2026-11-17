@@ -1307,6 +1307,72 @@ GAP_IN_PARTS_PLAYLIST = """
 #EXT-X-PART:DURATION=1,URI="filePart271.c.ts"
 """
 
+# Two gaps inside a continuous span with PROGRAM-DATE-TIME anchors, plus
+# a discontinuity that rebases the wall clock. Used to check that gaps
+# keep their place on the timeline and that the media sequence numbers,
+# offsets and dates are all preserved.
+GAP_TIMELINE_PLAYLIST = """
+#EXTM3U
+#EXT-X-MEDIA-SEQUENCE:100
+#EXT-X-VERSION:7
+#EXT-X-TARGETDURATION:10
+#EXT-X-DISCONTINUITY-SEQUENCE:2
+#EXT-X-PROGRAM-DATE-TIME:2021-07-01T12:00:00.000+00:00
+#EXTINF:6.006,
+segment100.ts
+#EXTINF:6.006,
+#EXT-X-GAP
+segment101.ts
+#EXTINF:3.003,
+segment102.ts
+#EXT-X-DISCONTINUITY
+#EXT-X-PROGRAM-DATE-TIME:2021-07-01T14:30:00.000+00:00
+#EXTINF:4.004,
+segment103.ts
+#EXTINF:6.006,
+#EXT-X-GAP
+segment104.ts
+#EXTINF:6.006,
+segment105.ts
+#EXT-X-ENDLIST
+"""
+
+# A gap playlist whose explicit PROGRAM-DATE-TIME anchor goes backwards
+# inside a continuous span, without a discontinuity in between.
+GAP_TIMELINE_BACKWARDS_DATE_PLAYLIST = """
+#EXTM3U
+#EXT-X-TARGETDURATION:6
+#EXT-X-PROGRAM-DATE-TIME:2021-07-01T12:00:00.000+00:00
+#EXTINF:6,
+segment0.ts
+#EXT-X-PROGRAM-DATE-TIME:2021-07-01T11:59:00.000+00:00
+#EXTINF:6,
+segment1.ts
+"""
+
+# A gap segment that also carries a playable partial segment: the segment
+# is said to be unavailable while one of its parts is downloadable. The
+# EXT-X-GAP is placed right before EXTINF so it applies to the segment
+# itself rather than to a following EXT-X-PART.
+GAP_TIMELINE_CONTRADICTORY_PARTS_PLAYLIST = """
+#EXTM3U
+#EXT-X-PART:DURATION=3,URI="part0.0.ts"
+#EXT-X-GAP
+#EXTINF:6,
+segment0.ts
+"""
+
+# A gap segment whose partial segments are all unavailable too: the gap is
+# consistent and the whole segment is not downloadable.
+GAP_TIMELINE_MISSING_PARTS_PLAYLIST = """
+#EXTM3U
+#EXT-X-PART:DURATION=3,URI="part0.0.ts",GAP=YES
+#EXT-X-PART:DURATION=3,URI="part0.1.ts",GAP=YES
+#EXT-X-GAP
+#EXTINF:6,
+segment0.ts
+"""
+
 PLAYLIST_WITH_SLASH_IN_QUERY_STRING = """
 #EXTM3U
 #EXT-X-VERSION:3

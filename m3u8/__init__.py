@@ -32,6 +32,13 @@ from m3u8.model import (
     Tiles,
 )
 from m3u8.parser import ParseError, parse
+from m3u8.timeline import (
+    SegmentTimeline,
+    TimelineEntry,
+    TimelineError,
+    TimelineSpan,
+    build_segment_timeline,
+)
 
 __all__ = (
     "M3U8",
@@ -57,6 +64,11 @@ __all__ = (
     "ContentSteering",
     "ImagePlaylist",
     "Tiles",
+    "SegmentTimeline",
+    "TimelineEntry",
+    "TimelineError",
+    "TimelineSpan",
+    "build_segment_timeline",
     "loads",
     "load",
     "parse",

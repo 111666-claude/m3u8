@@ -136,6 +136,12 @@ class M3U8:
       `is_images_only`
         Returns true if EXT-X-IMAGES-ONLY tag present in M3U8.
         https://github.com/image-media-playlist/spec/blob/master/image_media_playlist_v0_4.pdf
+
+      `gap_timeline` (method)
+        Builds a gap aware timeline of the segments: each segment's start,
+        end, URI and whether it can be downloaded. `EXT-X-GAP` segments
+        occupy their EXTINF duration but are not downloadable. See
+        `m3u8.timeline.build_segment_timeline`.
     """
 
     simple_attributes = (
@@ -361,6 +367,26 @@ class M3U8:
 
     def add_rendition_report(self, report):
         self.rendition_reports.append(report)
+
+    def gap_timeline(self):
+        """
+        Returns a gap aware timeline of this Media Playlist.
+
+        Every segment is reported with its Media Sequence Number, URI,
+        start/end offsets and whether it is downloadable. Segments tagged
+        ``EXT-X-GAP`` keep their ``EXTINF`` duration on the timeline but are
+        marked as not downloadable, so a player can skip them without
+        shifting the segments that follow. ``EXT-X-PROGRAM-DATE-TIME``
+        anchors add wall-clock dates, and ``EXT-X-DISCONTINUITY`` splits the
+        timeline into continuous spans.
+
+        The playlist and its segments are not modified. See
+        :func:`m3u8.build_segment_timeline` for the full set of rules and
+        errors.
+        """
+        from m3u8.timeline import build_segment_timeline
+
+        return build_segment_timeline(self)
 
     def dumps(self, timespec="milliseconds", infspec="auto"):
         """
