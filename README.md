@@ -39,6 +39,37 @@ print(playlist.dumps())
 playlist.dump('playlist.m3u8')
 ```
 
+## Resolving session keys
+
+A master playlist may carry `#EXT-X-SESSION-KEY` tags so that a player can
+prefetch the keys before downloading the media segments. Given the master
+and one of its media playlists, `resolve_session_keys` returns the effective
+key of every segment, associating each `#EXT-X-KEY` with a session key by
+its `METHOD`/`KEYFORMAT`/`KEYFORMATVERSIONS` identity
+([RFC 8216, section 4.3.4.5](https://tools.ietf.org/html/rfc8216#section-4.3.4.5)):
+
+```python
+import m3u8
+
+master = m3u8.load('http://videoserver.com/master.m3u8')
+media = m3u8.load('http://videoserver.com/media/media.m3u8')
+
+# One entry per media segment: a SessionKey object, or None for clear
+# segments (METHOD=NONE). Each key exposes its absolute_uri for prefetch.
+keys = media.resolve_session_keys(master, media_uri='media.m3u8')
+for segment, key in zip(media.segments, keys):
+    if key is not None:
+        prefetch(key.absolute_uri)
+```
+
+Clear segments (`METHOD=NONE`) always resolve to `None`. The playlists
+themselves are never modified. Specific exceptions describe the error
+cases: `SessionKeyNotFoundError` (no session key for an `#EXT-X-KEY`
+identity), `ConflictingSessionKeyError` (duplicate or disagreeing
+definitions), `SessionKeyURIError` (key URI that cannot be resolved) and
+`UnrelatedPlaylistError` (the media playlist does not belong to the
+master, or a non-master playlist carries `#EXT-X-SESSION-KEY`).
+
 # Supported tags
 
 -   [\#EXT-X-TARGETDURATION](https://tools.ietf.org/html/rfc8216#section-4.3.3.1)

@@ -3,6 +3,7 @@
 # license that can be found in the LICENSE file.
 import decimal
 import os
+from urllib.parse import urljoin
 
 from m3u8.mixins import BasePathMixin, GroupedBasePathMixin
 from m3u8.parser import format_date_time, parse
@@ -15,9 +16,59 @@ from m3u8.protocol import (
     ext_x_start,
 )
 
+# RFC 8216, section 4.3.2.4: when KEYFORMAT/KEYFORMATVERSIONS are absent,
+# these implicit values apply.
+DEFAULT_KEYFORMAT = "identity"
+DEFAULT_KEYFORMATVERSIONS = "1"
+
 
 class MalformedPlaylistError(Exception):
     pass
+
+
+class SessionKeyResolutionError(Exception):
+    """Base class for errors raised while resolving EXT-X-SESSION-KEY data."""
+
+
+class SessionKeyNotFoundError(SessionKeyResolutionError):
+    """
+    Raised when an EXT-X-KEY in a media playlist has no matching
+    EXT-X-SESSION-KEY (same METHOD/KEYFORMAT/KEYFORMATVERSIONS) in the
+    master playlist.
+    """
+
+    def __init__(self, identity, key):
+        self.identity = identity
+        self.key = key
+        message = (
+            "No EXT-X-SESSION-KEY found in master playlist for media key "
+            "(METHOD=%r, KEYFORMAT=%r, KEYFORMATVERSIONS=%r, URI=%r)"
+            % (identity[0], identity[1], identity[2], key.uri)
+        )
+        super().__init__(message)
+
+
+class ConflictingSessionKeyError(SessionKeyResolutionError):
+    """
+    Raised when two EXT-X-SESSION-KEY entries share the same
+    METHOD/KEYFORMAT/KEYFORMATVERSIONS identity but point at different key
+    material (URI), when an EXT-X-KEY disagrees with the session key that
+    owns its identity, or when EXT-X-SESSION-KEY incorrectly uses
+    METHOD=NONE.
+    """
+
+
+class UnrelatedPlaylistError(SessionKeyResolutionError):
+    """
+    Raised when a media playlist is resolved against a master playlist that
+    does not reference it (EXT-X-SESSION-KEY must only be used with media
+    playlists of the master that carries the tag), or when a non-variant
+    playlist containing EXT-X-SESSION-KEY is treated as a master.
+    """
+
+
+class SessionKeyURIError(SessionKeyResolutionError, ValueError):
+    """Raised when a session key URI cannot be resolved to an absolute URI."""
 
 
 class M3U8:
@@ -447,6 +498,53 @@ class M3U8:
         basename = os.path.dirname(filename)
         if basename:
             os.makedirs(basename, exist_ok=True)
+
+    def resolve_session_keys(self, master, media_uri=None):
+        """
+        Resolve, for every segment of this media playlist, which key must be
+        fetched before the segment is downloaded, using the EXT-X-SESSION-KEY
+        entries declared by ``master``.
+
+        Session keys are associated with the per-segment EXT-X-KEY tags by
+        their METHOD/KEYFORMAT/KEYFORMATVERSIONS identity
+        (RFC 8216, section 4.3.4.5).
+
+        Parameters:
+
+         `master`
+           the master (variant) ``M3U8`` object whose ``session_keys`` must
+           be considered.
+
+         `media_uri`
+           optional URI this media playlist was loaded from. When given, it
+           must be referenced by ``master`` (directly or through an
+           EXT-X-MEDIA rendition); otherwise an ``UnrelatedPlaylistError`` is
+           raised, guarding against EXT-X-SESSION-KEY from one master being
+           applied to a media playlist of another master.
+
+        The playlist itself is never modified. For each segment the returned
+        list contains either:
+
+          * the matching ``SessionKey`` object, whose ``absolute_uri`` is the
+            absolute key URI resolved against the master playlist;
+          * ``None`` for clear segments (explicit METHOD=NONE, or segments
+            without any EXT-X-KEY while the playlist starts unencrypted).
+
+        Raises:
+          ``UnrelatedPlaylistError``        - the media playlist does not
+                                              belong to ``master``, or a
+                                              non-master playlist carrying
+                                              EXT-X-SESSION-KEY is used,
+          ``ConflictingSessionKeyError``    - the same identity is defined
+                                              twice with different material,
+                                              or the session key and the
+                                              EXT-X-KEY it preloads disagree,
+          ``SessionKeyNotFoundError``       - an EXT-X-KEY identity has no
+                                              matching session key,
+          ``SessionKeyURIError``            - a key URI cannot be turned into
+                                              an absolute URI.
+        """
+        return resolve_session_keys(self, master, media_uri)
 
 
 class Segment(BasePathMixin):
@@ -1641,6 +1739,160 @@ def find_key(keydata, keylist):
             ):
                 return key
     raise KeyError("No key found for key data")
+
+
+def key_identity(key):
+    """
+    Identity tuple used to associate EXT-X-SESSION-KEY entries with
+    per-segment EXT-X-KEY tags: METHOD/KEYFORMAT/KEYFORMATVERSIONS.
+    Absent KEYFORMAT ("identity") and KEYFORMATVERSIONS ("1") fall back to
+    the implicit values from RFC 8216 section 4.3.2.4.
+    """
+    return (
+        key.method,
+        key.keyformat or DEFAULT_KEYFORMAT,
+        key.keyformatversions or DEFAULT_KEYFORMATVERSIONS,
+    )
+
+
+def _absolute_uri(key):
+    try:
+        return key.absolute_uri
+    except ValueError as error:
+        raise SessionKeyURIError(
+            "Cannot build absolute URI for %s %r: %s" % (key.tag, key.uri, error)
+        ) from error
+
+
+def _build_session_key_index(master):
+    """
+    Index the master's EXT-X-SESSION-KEY entries by their
+    METHOD/KEYFORMAT/KEYFORMATVERSIONS identity.
+
+    Validates that:
+      * ``master`` is actually a variant playlist (EXT-X-SESSION-KEY is only
+        valid on master playlists, RFC 8216 section 4.3.4.5);
+      * the same identity is not defined twice with different key material
+        (URI);
+      * METHOD=NONE is never used (the tag must list encrypting keys).
+    """
+    index = {}
+    if not master.is_variant:
+        if master.session_keys:
+            raise UnrelatedPlaylistError(
+                "EXT-X-SESSION-KEY is only valid in a master playlist"
+            )
+        return index
+
+    for session_key in master.session_keys:
+        if session_key.method == "NONE":
+            raise ConflictingSessionKeyError(
+                "EXT-X-SESSION-KEY must not use METHOD=NONE"
+            )
+        identity = key_identity(session_key)
+        existing = index.get(identity)
+        if existing is not None:
+            if existing.uri != session_key.uri:
+                raise ConflictingSessionKeyError(
+                    "Conflicting EXT-X-SESSION-KEY definitions for %s" % (identity,)
+                )
+            # exact duplicate, ignore
+            continue
+        index[identity] = session_key
+    return index
+
+
+def _master_contains_media(master, media_uri):
+    """
+    Check that ``media_uri`` is one of the URIs reachable from ``master``:
+    a variant, i-frame or image playlist URI, or an EXT-X-MEDIA rendition.
+    Both absolute and relative URIs are compared.
+    """
+    try:
+        resolved_media_uri = urljoin(master.base_uri, media_uri)
+    except ValueError:
+        resolved_media_uri = media_uri
+
+    referenced_uris = set()
+    for playlist_list in (
+        master.playlists,
+        master.iframe_playlists,
+        master.image_playlists,
+    ):
+        for playlist in playlist_list:
+            referenced_uris.add(playlist.uri)
+    for media in master.media:
+        if media.uri is not None:
+            referenced_uris.add(media.uri)
+
+    if media_uri in referenced_uris or resolved_media_uri in referenced_uris:
+        return True
+
+    # Compare on absolute URIs when the master has a resolvable base URI.
+    if master.base_uri:
+        try:
+            absolute_referenced = {
+                urljoin(master.base_uri, uri) for uri in referenced_uris
+            }
+        except ValueError:
+            absolute_referenced = set()
+        if resolved_media_uri in absolute_referenced:
+            return True
+
+    return False
+
+
+def resolve_session_keys(media, master, media_uri=None):
+    """
+    Resolve the effective key of every segment in ``media`` against the
+    EXT-X-SESSION-KEY entries of ``master``. See
+    ``M3U8.resolve_session_keys`` for the full semantics.
+    """
+    if not isinstance(media, M3U8) or not isinstance(master, M3U8):
+        raise TypeError("media and master must be M3U8 instances")
+
+    session_key_index = _build_session_key_index(master)
+
+    if media_uri is not None and master.is_variant:
+        if not _master_contains_media(master, media_uri):
+            raise UnrelatedPlaylistError(
+                "Master playlist does not reference media playlist %r" % (media_uri,)
+            )
+
+    resolved_keys = []
+    for segment in media.segments:
+        media_key = segment.key
+
+        # Clear segments: explicit METHOD=NONE always wins, and a segment
+        # without any EXT-X-KEY stays clear.
+        if media_key is None or media_key.method == "NONE":
+            resolved_keys.append(None)
+            continue
+
+        identity = key_identity(media_key)
+        session_key = session_key_index.get(identity)
+        if session_key is None:
+            # The media playlist references a key identity the master did
+            # not preload. There is nothing to prefetch, so report it
+            # explicitly instead of silently guessing.
+            raise SessionKeyNotFoundError(identity, media_key)
+
+        # RFC 8216 section 4.3.4.5: the session key and the EXT-X-KEY it
+        # preloads must point at the same key material (URI). IV is not
+        # carried by EXT-X-SESSION-KEY, so it is not part of this check.
+        if session_key.uri != media_key.uri:
+            raise ConflictingSessionKeyError(
+                "EXT-X-KEY %r conflicts with the EXT-X-SESSION-KEY declared "
+                "for %s" % (media_key.uri, identity)
+            )
+
+        # Validate the absolute URI eagerly so a bad master base URI or key
+        # URI fails loudly instead of at fetch time. The returned object is
+        # the original session key; only the read is performed here.
+        _absolute_uri(session_key)
+        resolved_keys.append(session_key)
+
+    return resolved_keys
 
 
 def denormalize_attribute(attribute):

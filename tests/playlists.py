@@ -1587,4 +1587,134 @@ WINDOWS_PLAYLIST = r"""\
 C:\HLS Video\test1.ts
 """
 
+# ---------------------------------------------------------------------------
+# EXT-X-SESSION-KEY resolution fixtures
+#
+# A master playlist carrying session keys in two different KEYFORMATs
+# (implicit "identity" AES-128 and Apple SAMPLE-AES), plus the matching
+# media playlist exercising key rotation, an explicit METHOD=NONE clear
+# stretch, and a return to an encrypted key.
+# ---------------------------------------------------------------------------
+
+MASTER_PLAYLIST_WITH_SESSION_KEYS = """#EXTM3U
+#EXT-X-VERSION:5
+#EXT-X-SESSION-KEY:METHOD=AES-128,URI="keys/aes-1.bin"
+#EXT-X-SESSION-KEY:METHOD=SAMPLE-AES,URI="skd://fairplay-1",KEYFORMAT="com.apple.streamingkeydelivery",KEYFORMATVERSIONS="1"
+#EXT-X-SESSION-KEY:METHOD=SAMPLE-AES,URI="skd://widevine-1",KEYFORMAT="com.widevine.key",KEYFORMATVERSIONS="2"
+#EXT-X-STREAM-INF:BANDWIDTH=1280000,CODECS="mp4a.40.2,avc1.64001f"
+media.m3u8
+"""
+
+MASTER_PLAYLIST_WITH_SESSION_KEYS_BASE_URI = "https://priv.example.com/hls/"
+
+MEDIA_PLAYLIST_WITH_ROTATION_AND_CLEAR = """#EXTM3U
+#EXT-X-VERSION:5
+#EXT-X-TARGETDURATION:8
+#EXT-X-KEY:METHOD=AES-128,URI="keys/aes-1.bin"
+#EXTINF:8,
+seg1.ts
+#EXTINF:8,
+seg2.ts
+#EXT-X-KEY:METHOD=NONE
+#EXTINF:8,
+seg3.ts
+#EXT-X-KEY:METHOD=SAMPLE-AES,URI="skd://fairplay-1",KEYFORMAT="com.apple.streamingkeydelivery",KEYFORMATVERSIONS="1"
+#EXTINF:8,
+seg4.ts
+#EXT-X-KEY:METHOD=SAMPLE-AES,URI="skd://widevine-1",KEYFORMAT="com.widevine.key",KEYFORMATVERSIONS="2"
+#EXTINF:8,
+seg5.ts
+#EXT-X-KEY:METHOD=AES-128,URI="keys/aes-1.bin"
+#EXTINF:8,
+seg6.ts
+"""
+
+MEDIA_PLAYLIST_WITH_ROTATION_AND_CLEAR_BASE_URI = "https://priv.example.com/hls/"
+
+# Same media playlist but starting unencrypted, without any leading
+# EXT-X-KEY (segment.key is None instead of a METHOD=NONE Key).
+MEDIA_PLAYLIST_STARTING_CLEAR = """#EXTM3U
+#EXT-X-VERSION:5
+#EXT-X-TARGETDURATION:8
+#EXTINF:8,
+seg0.ts
+#EXT-X-KEY:METHOD=AES-128,URI="keys/aes-1.bin"
+#EXTINF:8,
+seg1.ts
+"""
+
+# Media playlist referencing a key identity the master never preloaded.
+MEDIA_PLAYLIST_WITH_UNKNOWN_SESSION_KEY = """#EXTM3U
+#EXT-X-VERSION:5
+#EXT-X-TARGETDURATION:8
+#EXT-X-KEY:METHOD=SAMPLE-AES,URI="skd://widevine-1",KEYFORMAT="com.widevine.key",KEYFORMATVERSIONS="1"
+#EXTINF:8,
+seg1.ts
+"""
+
+# Master with two session keys sharing one identity but pointing at
+# different key material.
+MASTER_PLAYLIST_WITH_CONFLICTING_SESSION_KEYS = """#EXTM3U
+#EXT-X-VERSION:5
+#EXT-X-SESSION-KEY:METHOD=AES-128,URI="keys/aes-1.bin"
+#EXT-X-SESSION-KEY:METHOD=AES-128,URI="keys/aes-other.bin"
+#EXT-X-STREAM-INF:BANDWIDTH=1280000
+media.m3u8
+"""
+
+# Media playlist whose EXT-X-KEY URI disagrees with the session key that
+# owns the same METHOD/KEYFORMAT/KEYFORMATVERSIONS identity.
+MEDIA_PLAYLIST_WITH_CONFLICTING_KEY_URI = """#EXTM3U
+#EXT-X-VERSION:5
+#EXT-X-TARGETDURATION:8
+#EXT-X-KEY:METHOD=AES-128,URI="keys/rotated.bin"
+#EXTINF:8,
+seg1.ts
+"""
+
+# A media playlist that illegally carries EXT-X-SESSION-KEY itself.
+MEDIA_PLAYLIST_WITH_ILLEGAL_SESSION_KEY = """#EXTM3U
+#EXT-X-VERSION:5
+#EXT-X-SESSION-KEY:METHOD=AES-128,URI="keys/aes-1.bin"
+#EXT-X-TARGETDURATION:8
+#EXT-X-KEY:METHOD=AES-128,URI="keys/aes-1.bin"
+#EXTINF:8,
+seg1.ts
+"""
+
+# Session key whose URI cannot be turned into an absolute URI because the
+# master has no base URI and the key URI is relative.
+MASTER_PLAYLIST_WITH_RELATIVE_SESSION_KEY = """#EXTM3U
+#EXT-X-VERSION:5
+#EXT-X-SESSION-KEY:METHOD=AES-128,URI="keys/aes-1.bin"
+#EXT-X-STREAM-INF:BANDWIDTH=1280000
+media.m3u8
+"""
+
+MEDIA_PLAYLIST_WITH_RELATIVE_KEY = """#EXTM3U
+#EXT-X-VERSION:5
+#EXT-X-TARGETDURATION:8
+#EXT-X-KEY:METHOD=AES-128,URI="keys/aes-1.bin"
+#EXTINF:8,
+seg1.ts
+"""
+
+# A second, unrelated master used to check cross-master misuse.
+OTHER_MASTER_PLAYLIST = """#EXTM3U
+#EXT-X-VERSION:5
+#EXT-X-SESSION-KEY:METHOD=AES-128,URI="keys/aes-1.bin"
+#EXT-X-STREAM-INF:BANDWIDTH=1280000
+other.m3u8
+"""
+
+# Media key with an explicit IV; session keys carry no IV (RFC 8216
+# 4.3.4.5), so the resolution must still succeed.
+MEDIA_PLAYLIST_WITH_KEY_IV = """#EXTM3U
+#EXT-X-VERSION:5
+#EXT-X-TARGETDURATION:8
+#EXT-X-KEY:METHOD=AES-128,URI="keys/aes-1.bin",IV=0X10ef8f758ca555115584bb5b3c687f52
+#EXTINF:8,
+seg1.ts
+"""
+
 del abspath, dirname, join
