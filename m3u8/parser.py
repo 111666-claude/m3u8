@@ -65,6 +65,7 @@ def parse(content, strict=False, custom_tags_parser=None):
         "session_data": [],
         "session_keys": [],
         "segment_map": [],
+        "defines": [],
     }
 
     state = {
@@ -219,6 +220,9 @@ def parse(content, strict=False, custom_tags_parser=None):
             _parse_is_images_only(**parse_kwargs)
         elif line.startswith(protocol.ext_x_tiles):
             _parse_tiles(**parse_kwargs)
+
+        elif line.startswith(protocol.ext_x_define):
+            _parse_define(**parse_kwargs)
 
         # #EXTM3U should be present.
         elif line.startswith(protocol.ext_m3u):
@@ -413,6 +417,28 @@ def _parse_tiles(line, data, state, **kwargs):
     attribute_parser["duration"] = float
     tiles_info = _parse_attribute_list(protocol.ext_x_tiles, line, attribute_parser)
     data["tiles"].append(tiles_info)
+
+
+def _parse_define(line, data, state, **kwargs):
+    # EXT-X-DEFINE carries exactly one source attribute: NAME (with
+    # VALUE), IMPORT, or QUERYPARAM. Values are quoted-strings. The
+    # raw declaration order is preserved so the model can resolve
+    # references against preceding tags only.
+    define_info = _parse_attribute_list(
+        protocol.ext_x_define,
+        line,
+        remove_quotes_parser("name", "value", "import", "queryparam"),
+    )
+    definition = {}
+    if "queryparam" in define_info:
+        definition["query_param"] = define_info["queryparam"]
+    if "name" in define_info:
+        definition["name"] = define_info["name"]
+    if "value" in define_info:
+        definition["value"] = define_info["value"]
+    if "import" in define_info:
+        definition["import"] = define_info["import"]
+    data["defines"].append(definition)
 
 
 def _parse_media(line, data, **kwargs):

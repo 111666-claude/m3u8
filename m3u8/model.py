@@ -14,10 +14,70 @@ from m3u8.protocol import (
     ext_x_session_key,
     ext_x_start,
 )
+from m3u8.variables import (
+    query_variables_from_uri,
+    resolve_variables,
+    substitute,
+)
 
 
 class MalformedPlaylistError(Exception):
     pass
+
+
+class VariableDefinition:
+    """
+    One EXT-X-DEFINE tag, kept in its original form so serialization is
+    a faithful round trip. Exactly one source attribute is set:
+
+      * ``name`` (with ``value``) for a local definition
+      * ``import`` for a variable inherited from the Multivariant Playlist
+      * ``query_param`` for a value taken from the Playlist URI query
+    """
+
+    def __init__(self, name=None, value=None, import_=None, query_param=None):
+        self.name = name
+        self.value = value
+        self.import_ = import_
+        self.query_param = query_param
+
+    @classmethod
+    def from_dict(cls, data):
+        return cls(
+            name=data.get("name"),
+            value=data.get("value"),
+            import_=data.get("import"),
+            query_param=data.get("query_param"),
+        )
+
+    def to_dict(self):
+        data = {}
+        if self.name is not None:
+            data["name"] = self.name
+        if self.value is not None:
+            data["value"] = self.value
+        if self.import_ is not None:
+            data["import"] = self.import_
+        if self.query_param is not None:
+            data["query_param"] = self.query_param
+        return data
+
+    def __str__(self):
+        if self.name is not None:
+            attributes = 'NAME="%s",VALUE="%s"' % (self.name, self.value)
+        elif self.import_ is not None:
+            attributes = 'IMPORT="%s"' % self.import_
+        else:
+            attributes = 'QUERYPARAM="%s"' % self.query_param
+        return "#EXT-X-DEFINE:" + attributes
+
+    def __eq__(self, other):
+        if not isinstance(other, VariableDefinition):
+            return False
+        return self.to_dict() == other.to_dict()
+
+    def __ne__(self, other):
+        return not self.__eq__(other)
 
 
 class M3U8:
@@ -161,7 +221,26 @@ class M3U8:
         base_uri=None,
         strict=False,
         custom_tags_parser=None,
+        variables=None,
+        query_variables=None,
+        uri=None,
     ):
+        """
+        Variable substitution parameters (EXT-X-DEFINE):
+
+         `variables`
+           variables imported from the Multivariant Playlist, or values
+           provided explicitly by the caller. Local NAME definitions take
+           precedence over these, and IMPORT declarations are resolved
+           against them.
+
+         `query_variables`
+           percent-decoded query parameters of the URI this Playlist was
+           loaded from, used to satisfy QUERYPARAM declarations. When not
+           given, `uri` (and then `base_uri`, when it still carries a
+           query string) is parsed; `m3u8.loads` fills this in from the
+           playlist URI.
+        """
         if content is not None:
             self.data = parse(content, strict, custom_tags_parser)
         else:
@@ -171,10 +250,35 @@ class M3U8:
             if not self._base_uri.endswith("/"):
                 self._base_uri += "/"
 
+        self._imported_variables = dict(variables) if variables else {}
+        self._explicit_query_variables = query_variables
+        self._source_uri = uri
         self._initialize_attributes()
         self.base_path = base_path
 
     def _initialize_attributes(self):
+        self.defines = [
+            VariableDefinition.from_dict(definition)
+            for definition in self.data.get("defines", [])
+        ]
+        if self._explicit_query_variables is not None:
+            query_variables = dict(self._explicit_query_variables)
+        elif self._source_uri:
+            query_variables = query_variables_from_uri(self._source_uri)
+        elif self._base_uri:
+            query_variables = query_variables_from_uri(self._base_uri)
+        else:
+            query_variables = {}
+
+        # Resolving validates every declaration (illegal names,
+        # duplicates, cycles, undefined references, unresolved IMPORT
+        # and QUERYPARAM entries) and yields terminal values.
+        self.variables = resolve_variables(
+            self.data.get("defines", []),
+            imported=self._imported_variables,
+            query_variables=query_variables,
+        )
+
         self.keys = [
             Key(base_uri=self.base_uri, **params) if params else None
             for params in self.data.get("keys", [])
@@ -283,6 +387,12 @@ class M3U8:
             base_uri=self.base_uri, **content_steering
         )
 
+        self._apply_variables()
+        # Eagerly validate every URI-bearing element so malformed
+        # playlists fail at construction time, no matter which URI the
+        # caller ends up reading.
+        self._validate_variable_references()
+
     def __unicode__(self):
         return self.dumps()
 
@@ -339,27 +449,90 @@ class M3U8:
         if self.content_steering:
             self.content_steering.base_path = self._base_path
 
+    def _uri_holding_objects(self):
+        """Every object whose URI is subject to variable substitution."""
+        objects = []
+        objects.extend(key for key in self.keys if key)
+        objects.extend(key for key in self.session_keys if key)
+        objects.extend(section for section in self.segment_map if section)
+        objects.extend(self.media)
+        objects.extend(self.playlists)
+        objects.extend(self.iframe_playlists)
+        objects.extend(self.image_playlists)
+        objects.extend(self.rendition_reports)
+        if self.preload_hint:
+            objects.append(self.preload_hint)
+        if self.content_steering:
+            objects.append(self.content_steering)
+        for segment in self.segments:
+            objects.append(segment)
+            if segment.init_section is not None:
+                objects.append(segment.init_section)
+            objects.extend(segment.parts)
+        return objects
+
+    def _apply_variables(self):
+        for obj in self._uri_holding_objects():
+            obj.variables = self.variables
+
+    def _validate_variable_references(self):
+        for obj in self._uri_holding_objects():
+            if obj.uri is not None:
+                # Accessing the property performs and checks expansion.
+                # With an empty scope any {$name} reference raises, so a
+                # playlist never silently keeps an unexpanded reference.
+                obj.resolved_uri
+
+    def expand(self, value):
+        """
+        Expand ``{$VariableName}`` references in an arbitrary string
+        using this Playlist's resolved variable scope.
+        """
+        return substitute(value, self.variables)
+
+    @property
+    def resolved_segment_uris(self):
+        return [segment.resolved_uri for segment in self.segments]
+
+    @property
+    def resolved_playlist_uris(self):
+        return [playlist.resolved_uri for playlist in self.playlists]
+
+    @property
+    def resolved_key_uris(self):
+        return [key.resolved_uri for key in self.keys if key]
+
     def add_playlist(self, playlist):
         self.is_variant = True
+        playlist.variables = self.variables
         self.playlists.append(playlist)
 
     def add_iframe_playlist(self, iframe_playlist):
         if iframe_playlist is not None:
             self.is_variant = True
+            iframe_playlist.variables = self.variables
             self.iframe_playlists.append(iframe_playlist)
 
     def add_image_playlist(self, image_playlist):
         if image_playlist is not None:
             self.is_variant = True
+            image_playlist.variables = self.variables
             self.image_playlists.append(image_playlist)
 
     def add_media(self, media):
+        media.variables = self.variables
         self.media.append(media)
 
     def add_segment(self, segment):
+        segment.variables = self.variables
+        if segment.init_section is not None:
+            segment.init_section.variables = self.variables
+        for part in segment.parts:
+            part.variables = self.variables
         self.segments.append(segment)
 
     def add_rendition_report(self, report):
+        report.variables = self.variables
         self.rendition_reports.append(report)
 
     def dumps(self, timespec="milliseconds", infspec="auto"):
@@ -368,6 +541,10 @@ class M3U8:
         You could also use unicode(<this obj>) or str(<this obj>)
         """
         output = ["#EXTM3U"]
+        # EXT-X-DEFINE must precede every Variable Reference, so the
+        # definitions are emitted first, in their declaration order.
+        for definition in self.defines:
+            output.append(str(definition))
         if self.content_steering:
             output.append(str(self.content_steering))
         if self.media_sequence:

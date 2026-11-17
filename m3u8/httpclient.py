@@ -3,6 +3,8 @@ import ssl
 import urllib.request
 from urllib.parse import urljoin
 
+from m3u8.variables import query_variables_from_uri
+
 
 class DefaultHTTPClient:
     def __init__(self, proxies=None):
@@ -14,7 +16,8 @@ class DefaultHTTPClient:
         opener = urllib.request.build_opener(proxy_handler, https_handler)
         opener.addheaders = headers.items()
         resource = opener.open(uri, timeout=timeout)
-        base_uri = urljoin(resource.geturl(), ".")
+        final_uri = resource.geturl()
+        base_uri = urljoin(final_uri, ".")
 
         if resource.info().get("Content-Encoding") == "gzip":
             content = gzip.decompress(resource.read()).decode(
@@ -24,7 +27,10 @@ class DefaultHTTPClient:
             content = resource.read().decode(
                 resource.headers.get_content_charset(failobj="utf-8")
             )
-        return content, base_uri
+        # The third element carries the query parameters of the final
+        # URI (including redirects) for EXT-X-DEFINE QUERYPARAM. Custom
+        # HTTP clients that still return a 2-tuple are supported.
+        return content, base_uri, query_variables_from_uri(final_uri)
 
 
 class HTTPSHandler:

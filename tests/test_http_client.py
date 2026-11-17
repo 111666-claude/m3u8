@@ -25,10 +25,13 @@ class TestDefaultHTTPClient(unittest.TestCase):
         mock_response.headers = MockHeaders()
         mock_open.return_value = mock_response
 
-        content, base_uri = client.download("http://example.com/index.m3u8")
+        content, base_uri, query_variables = client.download(
+            "http://example.com/index.m3u8"
+        )
 
         self.assertEqual(content, "playlist content")
         self.assertEqual(base_uri, "http://example.com/")
+        self.assertEqual(query_variables, {})
 
     @patch("urllib.request.OpenerDirector.open")
     def test_download_gzipped_content(self, mock_open):
@@ -42,10 +45,13 @@ class TestDefaultHTTPClient(unittest.TestCase):
         mock_response.headers = MockHeaders("utf-8")
         mock_open.return_value = mock_response
 
-        content, base_uri = client.download("http://example.com/index.m3u8")
+        content, base_uri, query_variables = client.download(
+            "http://example.com/index.m3u8"
+        )
 
         self.assertEqual(content, original_content)
         self.assertEqual(base_uri, "http://example.com/")
+        self.assertEqual(query_variables, {})
 
     @patch("urllib.request.OpenerDirector.open")
     def test_download_with_proxy(self, mock_open):
@@ -57,7 +63,30 @@ class TestDefaultHTTPClient(unittest.TestCase):
         mock_response.headers = MockHeaders()
         mock_open.return_value = mock_response
 
-        content, base_uri = client.download("http://example.com/index.m3u8")
+        content, base_uri, query_variables = client.download(
+            "http://example.com/index.m3u8"
+        )
 
         self.assertEqual(content, "playlist proxied content")
         self.assertEqual(base_uri, "http://example.com/")
+        self.assertEqual(query_variables, {})
+
+    @patch("urllib.request.OpenerDirector.open")
+    def test_download_exposes_query_parameters(self, mock_open):
+        client = DefaultHTTPClient()
+        mock_response = Mock(spec=HTTPResponse)
+        mock_response.read.return_value = b"playlist content"
+        mock_response.info.return_value = {}
+        mock_response.geturl.return_value = (
+            "http://example.com/index.m3u8?REGION=eu%20west&token=ab"
+        )
+        mock_response.headers = MockHeaders()
+        mock_open.return_value = mock_response
+
+        content, base_uri, query_variables = client.download(
+            "http://example.com/index.m3u8?REGION=eu%20west&token=ab"
+        )
+
+        self.assertEqual(content, "playlist content")
+        self.assertEqual(base_uri, "http://example.com/")
+        self.assertEqual(query_variables, {"REGION": "eu west", "token": "ab"})

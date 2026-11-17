@@ -81,6 +81,49 @@ playlist.dump('playlist.m3u8')
 -   [\#EXT-X-GAP](https://tools.ietf.org/html/draft-pantos-hls-rfc8216bis-05#section-4.4.2.7)
 -   [\#EXT-X-CONTENT-STEERING](https://tools.ietf.org/html/draft-pantos-hls-rfc8216bis-10#section-4.4.6.64)
 
+-   [\#EXT-X-DEFINE](https://datatracker.ietf.org/doc/html/draft-pantos-hls-rfc8216bis#section-4.4.2.3)
+
+# Playlist variables (EXT-X-DEFINE)
+
+`#EXT-X-DEFINE` declares playlist variables whose `{$name}` references are
+expanded in URI lines and quoted-string URI attributes (segments, keys,
+maps, media/variant playlists, parts, hints and so on). The raw URIs are
+always preserved on the objects and used when serializing with `dumps()`;
+the expanded values are exposed separately.
+
+```python
+import m3u8
+
+master = m3u8.loads("""#EXTM3U
+#EXT-X-DEFINE:NAME="CDN",VALUE="https://cdn.example.com"
+#EXT-X-STREAM-INF:BANDWIDTH=1000000
+{$CDN}/720p/index.m3u8
+""")
+master.variables                       # {'CDN': 'https://cdn.example.com'}
+master.playlists[0].uri                # '{$CDN}/720p/index.m3u8' (raw)
+master.playlists[0].resolved_uri       # 'https://cdn.example.com/720p/index.m3u8'
+```
+
+Media playlists import variables from the Multivariant Playlist through
+`IMPORT`, take values from the playlist URI query string through
+`QUERYPARAM`, or declare their own `NAME`/`VALUE` variables (which take
+precedence). Pass the master scope when loading a media playlist:
+
+```python
+media = m3u8.loads(media_content,
+                   uri="https://example.com/media.m3u8?REGION=eu-west",
+                   variables=master.variables)
+media.resolved_segment_uris
+```
+
+Precedence, highest to lowest: local `NAME` definitions, `IMPORT`
+variables inherited from the Multivariant Playlist, and `QUERYPARAM`
+values from the playlist URI. Malformed playlists raise a
+`VariableSubstitutionError` subclass (`InvalidVariableNameError`,
+`DuplicateVariableError`, `UndefinedVariableError`,
+`CyclicVariableReferenceError`, `IllegalSubstitutionValueError` or
+`VariableDefinitionError`).
+
 # Frequently Asked Questions
 
 -   [FAQ](https://github.com/globocom/m3u8/wiki/FAQ)

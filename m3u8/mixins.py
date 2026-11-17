@@ -1,8 +1,15 @@
 from os.path import dirname
 from urllib.parse import urljoin, urlsplit
 
+from m3u8.variables import substitute
+
 
 class BasePathMixin:
+    # Terminal variable scope for the owning Playlist. None means the
+    # object was created standalone and has no EXT-X-DEFINE context, so
+    # URIs are returned unchanged.
+    variables = None
+
     @property
     def absolute_uri(self):
         if self.uri is None:
@@ -18,6 +25,30 @@ class BasePathMixin:
             raise ValueError("There can not be `absolute_uri` with no `base_uri` set")
 
         return ret
+
+    @property
+    def resolved_uri(self):
+        """
+        The URI with every ``{$VariableName}`` reference expanded
+        according to the Playlist's EXT-X-DEFINE scope. URIs without a
+        reference are returned unchanged; an unresolvable reference
+        raises even when the Playlist declared no variables. Unlike
+        ``absolute_uri`` it never joins against ``base_uri``.
+        """
+        if self.uri is None:
+            return None
+        if not self.variables and "{$" not in self.uri:
+            return self.uri
+        return substitute(self.uri, self.variables or {})
+
+    @property
+    def resolved_absolute_uri(self):
+        """Like ``absolute_uri``, but computed from the resolved URI."""
+        if self.uri is None:
+            return None
+        if self.base_uri is None:
+            return self.resolved_uri
+        return urljoin(self.base_uri, self.resolved_uri)
 
     @property
     def base_path(self):
