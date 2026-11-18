@@ -448,6 +448,17 @@ class M3U8:
         if basename:
             os.makedirs(basename, exist_ok=True)
 
+    def resolve_start(self, time_offset=None, precise=None):
+        """
+        Resolves the EXT-X-START tag into the first segment a player should
+        download. Returns a `StartPosition`; see `m3u8.start_position` for
+        details. `time_offset` and `precise` override the tag's
+        TIME-OFFSET / PRECISE attributes when given.
+        """
+        from m3u8.start_position import resolve_start
+
+        return resolve_start(self, time_offset=time_offset, precise=precise)
+
 
 class Segment(BasePathMixin):
     """

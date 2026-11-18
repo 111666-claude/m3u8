@@ -32,6 +32,15 @@ from m3u8.model import (
     Tiles,
 )
 from m3u8.parser import ParseError, parse
+from m3u8.start_position import (
+    InvalidStartOffsetError,
+    MissingDurationError,
+    MissingStartTagError,
+    NoPlayableSegmentsError,
+    StartPosition,
+    StartPositionError,
+    resolve_start,
+)
 
 __all__ = (
     "M3U8",
@@ -61,6 +70,13 @@ __all__ = (
     "load",
     "parse",
     "ParseError",
+    "resolve_start",
+    "StartPosition",
+    "StartPositionError",
+    "MissingStartTagError",
+    "InvalidStartOffsetError",
+    "NoPlayableSegmentsError",
+    "MissingDurationError",
 )
 
 
