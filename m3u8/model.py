@@ -20,6 +20,23 @@ class MalformedPlaylistError(Exception):
     pass
 
 
+class MergeError(Exception):
+    """
+    Raised when a Playlist Delta Update cannot be merged with the
+    previous version of the playlist (for instance because the previous
+    window does not contain the segments that were skipped).
+    """
+
+
+class MergeConflictError(MergeError):
+    """
+    Raised when a segment present in both the previous playlist and the
+    Playlist Delta Update carries conflicting information, such as a
+    different EXT-X-KEY or EXT-X-MAP, or when the discontinuity sequence
+    moved backwards.
+    """
+
+
 class M3U8:
     """
     Represents a single M3U8 playlist. Should be instantiated with

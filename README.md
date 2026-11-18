@@ -39,6 +39,35 @@ print(playlist.dumps())
 playlist.dump('playlist.m3u8')
 ```
 
+## Merging Low-Latency HLS playlist delta updates
+
+A Low-Latency HLS server may answer a reload with a Playlist Delta Update:
+the older Media Segments are replaced by a single `#EXT-X-SKIP` tag.
+Use `m3u8.merge()` to combine the delta update with the previous, complete
+playlist you already hold and rebuild the full, up-to-date window.
+
+``` python
+import m3u8
+
+previous = m3u8.loads(previous_content)
+delta = m3u8.loads(delta_update_content)
+
+complete = m3u8.merge(previous, delta)
+print(complete.dumps())
+```
+
+The skipped segments are restored by Media Sequence Number, overlapping
+segments are replaced by the delta versions and new segments are appended.
+`EXT-X-KEY`, `EXT-X-MAP`, `EXT-X-DATERANGE` (including
+`RECENTLY-REMOVED-DATERANGES`) and `EXT-X-PART` associations are kept.
+Neither input object is modified.
+
+`m3u8.MergeError` (or its `m3u8.MergeConflictError` subclass) is raised when
+the delta cannot be merged, for instance because the previous window does
+not contain the skipped segments, the sequence numbers go backwards, a
+segment is duplicated, overlapping segments declare conflicting
+`EXT-X-KEY`/`EXT-X-MAP` tags or the discontinuity sequence changed.
+
 # Supported tags
 
 -   [\#EXT-X-TARGETDURATION](https://tools.ietf.org/html/rfc8216#section-4.3.3.1)

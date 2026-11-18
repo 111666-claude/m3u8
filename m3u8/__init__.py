@@ -16,6 +16,8 @@ from m3u8.model import (
     Key,
     Media,
     MediaList,
+    MergeConflictError,
+    MergeError,
     PartialSegment,
     PartialSegmentList,
     PartInformation,
@@ -31,6 +33,7 @@ from m3u8.model import (
     Start,
     Tiles,
 )
+from m3u8.delta import merge
 from m3u8.parser import ParseError, parse
 
 __all__ = (
@@ -57,6 +60,9 @@ __all__ = (
     "ContentSteering",
     "ImagePlaylist",
     "Tiles",
+    "MergeError",
+    "MergeConflictError",
+    "merge",
     "loads",
     "load",
     "parse",
