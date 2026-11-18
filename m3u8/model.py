@@ -14,6 +14,7 @@ from m3u8.protocol import (
     ext_x_session_key,
     ext_x_start,
 )
+from m3u8.reload import plan_blocking_reload
 
 
 class MalformedPlaylistError(Exception):
@@ -447,6 +448,37 @@ class M3U8:
         basename = os.path.dirname(filename)
         if basename:
             os.makedirs(basename, exist_ok=True)
+
+    def plan_blocking_reload(self, uri, *, first_reload=False, skip=None):
+        """
+        Plan the next reload request for this Low-Latency media playlist.
+
+        When the playlist's #EXT-X-SERVER-CONTROL tag allows blocking
+        reloads, the returned :class:`~m3u8.reload.BlockingReloadRequest`
+        carries a URI with the ``_HLS_msn`` and ``_HLS_part`` query
+        parameters pointing at the next Media Segment / Partial Segment, so
+        the server can hold the response until new media is available
+        instead of forcing the client to poll.
+
+        `uri`
+          the URI this playlist was loaded from; its query parameters are
+          preserved.
+
+        `first_reload`
+          set to ``True`` for the first blocking reload of the session:
+          ``_HLS_skip`` is never sent on that request, as required by the
+          HLS specification.
+
+        `skip`
+          optional ``"YES"`` or ``"v2"`` value for ``_HLS_skip``. It is only
+          forwarded when the server advertises CAN-SKIP-UNTIL (and, for
+          ``v2``, CAN-SKIP-DATERANGES).
+
+        When blocking reloads are not possible (variant playlist, endlist,
+        empty playlist, server opt-out, ...) the result is a regular,
+        non-blocking request for ``uri`` with the reason set accordingly.
+        """
+        return plan_blocking_reload(self, uri, first_reload=first_reload, skip=skip)
 
 
 class Segment(BasePathMixin):

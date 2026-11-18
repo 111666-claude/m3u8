@@ -32,6 +32,7 @@ from m3u8.model import (
     Tiles,
 )
 from m3u8.parser import ParseError, parse
+from m3u8.reload import BlockingReloadRequest
 
 __all__ = (
     "M3U8",
@@ -57,6 +58,7 @@ __all__ = (
     "ContentSteering",
     "ImagePlaylist",
     "Tiles",
+    "BlockingReloadRequest",
     "loads",
     "load",
     "parse",
