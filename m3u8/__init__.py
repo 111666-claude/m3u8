@@ -5,6 +5,7 @@
 import os
 from urllib.parse import urljoin, urlsplit
 
+from m3u8.byterange import ByteRangeError, ByteRangeRef, resolve_byteranges
 from m3u8.httpclient import DefaultHTTPClient
 from m3u8.model import (
     M3U8,
@@ -61,6 +62,9 @@ __all__ = (
     "load",
     "parse",
     "ParseError",
+    "ByteRangeError",
+    "ByteRangeRef",
+    "resolve_byteranges",
 )
 
 

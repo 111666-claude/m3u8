@@ -4,6 +4,7 @@
 import decimal
 import os
 
+from m3u8.byterange import resolve_byteranges
 from m3u8.mixins import BasePathMixin, GroupedBasePathMixin
 from m3u8.parser import format_date_time, parse
 from m3u8.protocol import (
@@ -361,6 +362,16 @@ class M3U8:
 
     def add_rendition_report(self, report):
         self.rendition_reports.append(report)
+
+    def byteranges(self):
+        """
+        Resolves the EXT-X-BYTERANGE of every Segment, PartialSegment and
+        InitializationSection, in playlist order, into a list of
+        ByteRangeRef carrying the closed-interval HTTP Range and length of
+        each resource. Raises ByteRangeError with the media sequence
+        number of the offending segment on invalid values.
+        """
+        return resolve_byteranges(self.segments)
 
     def dumps(self, timespec="milliseconds", infspec="auto"):
         """

@@ -1587,4 +1587,59 @@ WINDOWS_PLAYLIST = r"""\
 C:\HLS Video\test1.ts
 """
 
+# Three segments sharing one media file; only the first BYTERANGE
+# carries an offset, the others inherit the previous range end.
+SAME_FILE_THREE_SEGMENTS_PLAYLIST = """
+#EXTM3U
+#EXT-X-VERSION:4
+#EXT-X-TARGETDURATION:10
+#EXT-X-MEDIA-SEQUENCE:40
+#EXTINF:10,
+#EXT-X-BYTERANGE:100@0
+chunk.ts
+#EXTINF:10,
+#EXT-X-BYTERANGE:200
+chunk.ts
+#EXTINF:10,
+#EXT-X-BYTERANGE:300
+chunk.ts
+#EXT-X-ENDLIST
+"""
+
+# The map is an independent resource: its BYTERANGE chain is resolved
+# separately from the segment chain of the same playlist.
+MAP_WITH_BYTERANGE_SEGMENTS_PLAYLIST = """
+#EXTM3U
+#EXT-X-VERSION:7
+#EXT-X-TARGETDURATION:2
+#EXT-X-MEDIA-SEQUENCE:1
+#EXT-X-MAP:URI="init.mp4",BYTERANGE="812@0"
+#EXTINF:1,
+#EXT-X-BYTERANGE:1000@0
+main.mp4
+#EXTINF:1,
+#EXT-X-BYTERANGE:2000
+main.mp4
+#EXT-X-ENDLIST
+"""
+
+# Partial segments of one file: only the first part carries an offset.
+PARTS_WITH_BYTERANGES_PLAYLIST = """
+#EXTM3U
+#EXT-X-VERSION:9
+#EXT-X-TARGETDURATION:4
+#EXT-X-MEDIA-SEQUENCE:270
+#EXT-X-SERVER-CONTROL:PART-HOLD-BACK=3.06
+#EXT-X-PART-INF:PART-TARGET=1.02
+#EXTINF:4.08,
+fs270.mp4
+#EXT-X-PART:DURATION=1.02,URI="fs271.mp4",BYTERANGE=20000@0
+#EXT-X-PART:DURATION=1.02,URI="fs271.mp4",BYTERANGE=23000
+#EXT-X-PART:DURATION=1.02,URI="fs271.mp4",BYTERANGE=18000
+#EXTINF:4.08,
+#EXT-X-BYTERANGE:61000
+fs271.mp4
+#EXT-X-ENDLIST
+"""
+
 del abspath, dirname, join
